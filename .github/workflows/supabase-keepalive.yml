@@ -1,0 +1,20 @@
+name: Keep Supabase Awake
+
+# Runs every Monday and Thursday at 06:00 UTC — well within the 7-day
+# inactivity window Supabase uses to pause free-tier projects.
+# Also runnable manually anytime from the Actions tab (workflow_dispatch).
+on:
+  schedule:
+    - cron: '0 6 * * 1,4'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        run: |
+          curl -s -o /dev/null -w "Supabase responded with HTTP %{http_code}\n" \
+            "https://vzokgnvhijmrdicnbdoo.supabase.co/rest/v1/bones?select=bone_id&limit=1" \
+            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6b2tnbnZoaWptcmRpY25iZG9vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNjc2MTUsImV4cCI6MjEwMDc0MzYxNX0.bNJy2gB6Rkj7ZUyl8Lxhjof3Z4sU_NbI1xJTLnCtTYs" \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6b2tnbnZoaWptcmRpY25iZG9vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNjc2MTUsImV4cCI6MjEwMDc0MzYxNX0.bNJy2gB6Rkj7ZUyl8Lxhjof3Z4sU_NbI1xJTLnCtTYs"
