@@ -118,6 +118,23 @@
     border-top: 1px solid var(--border);
     margin: 24px 0 4px;
   }
+  .checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    text-transform: none;
+    letter-spacing: normal;
+    margin: 10px 0 0;
+    cursor: pointer;
+  }
+  .checkbox-item input[type=checkbox] {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
   .site-header {
     display: flex;
     align-items: center;
@@ -190,6 +207,20 @@
   </div>
   <div class="status" id="doiStatus"></div>
 
+  <label class="checkbox-item">
+    <input type="checkbox" id="noDoiCheckbox">
+    This article doesn't have a DOI
+  </label>
+
+  <div id="articleLinkBlock" style="display:none;">
+    <label>Article link <span style="color:var(--danger)">*</span></label>
+    <div class="doi-row">
+      <input type="text" id="linkInput" placeholder="Paste a link to the article (e.g. ResearchGate, the journal's page, Google Scholar)">
+      <button id="searchLinkBtn">Search</button>
+    </div>
+    <div class="status" id="linkStatus"></div>
+  </div>
+
   <div class="divider"></div>
 
   <fieldset id="detailsFieldset" disabled>
@@ -209,9 +240,6 @@
         <input type="text" id="journalInput">
       </div>
     </div>
-
-    <label>Link</label>
-    <input type="text" id="linkInput">
 
     <label>Description (your own summary, 2-3 sentences)</label>
     <textarea id="descriptionInput" placeholder="Brief summary of what this article covers..."></textarea>
@@ -314,12 +342,109 @@ async function lookupDoi() {
 lookupBtn.addEventListener('click', lookupDoi);
 doiInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') lookupDoi(); });
 
+const noDoiCheckbox = document.getElementById('noDoiCheckbox');
+const articleLinkBlock = document.getElementById('articleLinkBlock');
+const searchLinkBtn = document.getElementById('searchLinkBtn');
+const linkStatus = document.getElementById('linkStatus');
+
+noDoiCheckbox.addEventListener('change', () => {
+  if (noDoiCheckbox.checked) {
+    doiInput.value = '';
+    doiInput.disabled = true;
+    lookupBtn.disabled = true;
+    setStatus(doiStatus, '', '');
+    articleLinkBlock.style.display = '';
+    detailsFieldset.disabled = true;
+    clearBadges();
+    linkInput.focus();
+  } else {
+    doiInput.disabled = false;
+    lookupBtn.disabled = false;
+    articleLinkBlock.style.display = 'none';
+    linkInput.value = '';
+    setStatus(linkStatus, '', '');
+    if (!doiInput.value.trim()) {
+      detailsFieldset.disabled = true;
+    }
+  }
+});
+
+async function searchArticleLink() {
+  const url = linkInput.value.trim();
+  if (!url) {
+    setStatus(linkStatus, 'Paste a link first.', 'error');
+    return;
+  }
+
+  searchLinkBtn.disabled = true;
+  setStatus(linkStatus, 'Searching for article details...', 'info');
+  clearBadges();
+
+  try {
+    const proxyUrl = 'https://corsproxy.io/?url=' + encodeURIComponent(url);
+    const res = await fetch(proxyUrl);
+    if (!res.ok) throw new Error(`Could not reach that page (${res.status}).`);
+    const html = await res.text();
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+
+    const getMeta = (name) => {
+      const el = parsed.querySelector(`meta[name="${name}"]`);
+      return el ? el.getAttribute('content') : null;
+    };
+
+    const title = getMeta('citation_title') || getMeta('dc.title') || (parsed.querySelector('title') ? parsed.querySelector('title').textContent : '') || '';
+    const authorEls = parsed.querySelectorAll('meta[name="citation_author"]');
+    const authors = authorEls.length
+      ? Array.from(authorEls).map(el => el.getAttribute('content')).join(', ')
+      : (getMeta('dc.creator') || '');
+    const dateStr = getMeta('citation_publication_date') || getMeta('citation_online_date') || getMeta('citation_date') || '';
+    const yearMatch = dateStr.match(/\d{4}/);
+    const year = yearMatch ? yearMatch[0] : '';
+    const journal = getMeta('citation_journal_title') || getMeta('citation_conference_title') || '';
+
+    if (!title && !authors && !journal) {
+      setStatus(linkStatus, "Couldn't automatically read this page's details \u2014 this happens on some sites. Please fill in the fields below manually.", 'error');
+      detailsFieldset.disabled = false;
+      return;
+    }
+
+    titleInput.value = title;
+    authorsInput.value = authors;
+    yearInput.value = year;
+    journalInput.value = journal;
+
+    if (title) badge('titleBadge');
+    if (authors) badge('authorsBadge');
+    if (year) badge('yearBadge');
+    if (journal) badge('journalBadge');
+
+    detailsFieldset.disabled = false;
+    setStatus(linkStatus, 'Found it \u2014 check the auto-filled fields below, then complete the rest.', 'success');
+
+  } catch (err) {
+    setStatus(linkStatus, "Couldn't automatically fetch this page \u2014 some sites block this. Please fill in the fields below manually.", 'error');
+    detailsFieldset.disabled = false;
+  } finally {
+    searchLinkBtn.disabled = false;
+  }
+}
+
+searchLinkBtn.addEventListener('click', searchArticleLink);
+linkInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && noDoiCheckbox.checked) searchArticleLink(); });
+
 async function submitArticle() {
+  const noDoi = noDoiCheckbox.checked;
   const doi = doiInput.value.trim();
+  const link = linkInput.value.trim();
   const title = titleInput.value.trim();
   const uploader = uploaderInput.value.trim();
 
-  if (!doi || !uploader) {
+  if (noDoi) {
+    if (!link || !uploader) {
+      setStatus(submitStatus, 'An article link and your name are required.', 'error');
+      return;
+    }
+  } else if (!doi || !uploader) {
     setStatus(submitStatus, 'DOI and your name are required.', 'error');
     return;
   }
@@ -328,12 +453,12 @@ async function submitArticle() {
   setStatus(submitStatus, 'Saving to database...', 'info');
 
   const payload = {
-    doi: doi,
+    doi: noDoi ? null : doi,
     title: title || null,
     authors: authorsInput.value.trim() || null,
     year: yearInput.value ? parseInt(yearInput.value, 10) : null,
     journal: journalInput.value.trim() || null,
-    link: linkInput.value.trim() || null,
+    link: link || null,
     description: descriptionInput.value.trim() || null,
     uploader_name: uploader
   };
